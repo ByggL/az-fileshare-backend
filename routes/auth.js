@@ -1,35 +1,51 @@
 const express = require("express");
 const jwt = require("jsonwebtoken");
 const { v4: uuidv4 } = require("uuid");
-const { users } = require("../utils/db");
-const { SECRET_KEY } = require("../middleware/auth");
+const { sql } = require("../utils/db");
+require("dotenv").config();
 
 const router = express.Router();
 
-// inscription
-router.post("/register", (req, res) => {
+router.post("/register", async (req, res) => {
   const { username, password } = req.body;
+  const id = uuidv4();
 
-  // vérification existence
-  if (users.find((u) => u.username === username)) {
-    return res.status(400).json({ error: "utilisateur existant" });
+  try {
+    const pool = await sql.connect();
+    await pool
+      .request()
+      .input("id", sql.NVarChar, id)
+      .input("user", sql.NVarChar, username)
+      .input("pass", sql.NVarChar, password)
+      .query("INSERT INTO Users (id, username, password) VALUES (@id, @user, @pass)");
+
+    res.status(201).json({ message: "succès" });
+  } catch (err) {
+    res.status(400).json({ error: "Erreur ou utilisateur existant" });
   }
-
-  const newUser = { id: uuidv4(), username, password };
-  users.push(newUser);
-  res.status(201).json({ message: "succès" });
 });
 
-// connexion
-router.post("/login", (req, res) => {
+router.post("/login", async (req, res) => {
   const { username, password } = req.body;
-  const user = users.find((u) => u.username === username && u.password === password);
 
-  if (!user) return res.status(401).json({ error: "identifiants invalides" });
+  try {
+    const pool = await sql.connect();
+    const result = await pool
+      .request()
+      .input("user", sql.NVarChar, username)
+      .input("pass", sql.NVarChar, password)
+      .query("SELECT * FROM Users WHERE username = @user AND password = @pass");
 
-  // génération token
-  const token = jwt.sign({ id: user.id, username: user.username }, SECRET_KEY, { expiresIn: "1h" });
-  res.json({ token });
+    if (result.recordset.length === 0) {
+      return res.status(401).json({ error: "identifiants invalides" });
+    }
+
+    const user = result.recordset[0];
+    const token = jwt.sign({ id: user.id, username: user.username }, process.env.SECRET_KEY, { expiresIn: "1h" });
+    res.json({ token });
+  } catch (err) {
+    res.status(500).json({ error: "Erreur serveur" });
+  }
 });
 
 module.exports = router;

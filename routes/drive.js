@@ -1,111 +1,137 @@
 const express = require("express");
 const { v4: uuidv4 } = require("uuid");
-const path = require("path");
-const fs = require("fs");
-const { items, shares } = require("../utils/db");
+const { sql } = require("../utils/db");
+const { uploadToBlob, getBlobStream, deleteBlob } = require("../utils/blob");
 const upload = require("../middleware/upload");
 const { verifyToken } = require("../middleware/auth");
 
 const router = express.Router();
 
-// lister contenu
-router.get("/", verifyToken, (req, res) => {
+// Lister contenu
+router.get("/", verifyToken, async (req, res) => {
   const parentId = req.query.parentId || null;
-  // filtrer par utilisateur et dossier parent
-  const userItems = items.filter((i) => i.userId === req.user.id && i.parentId === parentId);
-  res.json(userItems);
+
+  try {
+    const pool = await sql.connect();
+    // Gestion du NULL pour parentId dans la requête SQL
+    let query = "SELECT * FROM Items WHERE userId = @uid AND ";
+    query += parentId ? "parentId = @pid" : "parentId IS NULL";
+
+    const reqSql = pool.request().input("uid", sql.NVarChar, req.user.id);
+    if (parentId) reqSql.input("pid", sql.NVarChar, parentId);
+
+    const result = await reqSql.query(query);
+    res.json(result.recordset);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// créer dossier
-router.post("/folders", verifyToken, (req, res) => {
+// Créer dossier (Métadonnée SQL uniquement)
+router.post("/folders", verifyToken, async (req, res) => {
   const { name, parentId } = req.body;
+  const id = uuidv4();
 
-  const folder = {
-    id: uuidv4(),
-    userId: req.user.id,
-    type: "folder",
-    name,
-    parentId: parentId || null,
-    createdAt: new Date(),
-  };
+  try {
+    const pool = await sql.connect();
+    await pool
+      .request()
+      .input("id", sql.NVarChar, id)
+      .input("uid", sql.NVarChar, req.user.id)
+      .input("type", sql.NVarChar, "folder")
+      .input("name", sql.NVarChar, name)
+      .input("pid", sql.NVarChar, parentId || null).query(`INSERT INTO Items (id, userId, type, name, parentId) 
+                    VALUES (@id, @uid, @type, @name, @pid)`);
 
-  items.push(folder);
-  res.status(201).json(folder);
+    res.status(201).json({ id, name, type: "folder" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// upload fichier
-router.post("/files", verifyToken, upload.single("file"), (req, res) => {
+// Upload fichier (Blob + SQL)
+router.post("/files", verifyToken, upload.single("file"), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: "aucun fichier" });
 
-  const file = {
-    id: uuidv4(),
-    userId: req.user.id,
-    type: "file",
-    name: req.file.originalname,
-    path: req.file.path, // chemin physique
-    size: req.file.size,
-    mimetype: req.file.mimetype,
-    parentId: req.body.parentId || null,
-    createdAt: new Date(),
-  };
+  const id = uuidv4();
+  const blobName = `${id}-${req.file.originalname}`; // Nom unique pour le blob
 
-  items.push(file);
-  res.status(201).json(file);
-});
+  try {
+    // 1. Upload vers Azure Blob Storage
+    await uploadToBlob(req.file.buffer, blobName);
 
-// métadonnées
-router.get("/files/:id/metadata", verifyToken, (req, res) => {
-  const item = items.find((i) => i.id === req.params.id && i.userId === req.user.id);
-  if (!item) return res.status(404).json({ error: "introuvable" });
-  res.json(item);
-});
+    // 2. Sauvegarde métadonnées dans Azure SQL
+    const pool = await sql.connect();
+    await pool
+      .request()
+      .input("id", sql.NVarChar, id)
+      .input("uid", sql.NVarChar, req.user.id)
+      .input("type", sql.NVarChar, "file")
+      .input("name", sql.NVarChar, req.file.originalname)
+      .input("size", sql.BigInt, req.file.size)
+      .input("mime", sql.NVarChar, req.file.mimetype)
+      .input("pid", sql.NVarChar, req.body.parentId || null)
+      .input("blob", sql.NVarChar, blobName)
+      .query(`INSERT INTO Items (id, userId, type, name, size, mimetype, parentId, blobName) 
+                    VALUES (@id, @uid, @type, @name, @size, @mime, @pid, @blob)`);
 
-// téléchargement propriétaire
-router.get("/files/:id/content", verifyToken, (req, res) => {
-  const item = items.find((i) => i.id === req.params.id && i.userId === req.user.id);
-
-  if (!item || item.type !== "file") return res.status(404).json({ error: "fichier introuvable" });
-
-  // envoi flux fichier
-  res.download(path.resolve(item.path), item.name);
-});
-
-// créer lien partage
-router.post("/items/:id/share", verifyToken, (req, res) => {
-  const item = items.find((i) => i.id === req.params.id && i.userId === req.user.id);
-  if (!item) return res.status(404).json({ error: "introuvable" });
-
-  const shareToken = uuidv4();
-  shares.push({ token: shareToken, itemId: item.id });
-
-  res.json({ link: `/api/share/${shareToken}` });
-});
-
-// accès public via partage
-router.get("/share/:token", (req, res) => {
-  const share = shares.find((s) => s.token === req.params.token);
-  if (!share) return res.status(404).json({ error: "lien invalide" });
-
-  const item = items.find((i) => i.id === share.itemId);
-  if (!item || item.type !== "file") return res.status(404).json({ error: "fichier supprimé" });
-
-  res.download(path.resolve(item.path), item.name);
-});
-
-// suppression
-router.delete("/items/:id", verifyToken, (req, res) => {
-  const index = items.findIndex((i) => i.id === req.params.id && i.userId === req.user.id);
-  if (index === -1) return res.status(404).json({ error: "introuvable" });
-
-  const item = items[index];
-
-  // suppression physique si fichier
-  if (item.type === "file" && fs.existsSync(item.path)) {
-    fs.unlinkSync(item.path);
+    res.status(201).json({ id, name: req.file.originalname, type: "file" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
+});
 
-  items.splice(index, 1);
-  res.status(204).send();
+// Téléchargement fichier (Stream depuis Blob)
+router.get("/files/:id/content", verifyToken, async (req, res) => {
+  try {
+    const pool = await sql.connect();
+    const result = await pool
+      .request()
+      .input("id", sql.NVarChar, req.params.id)
+      .input("uid", sql.NVarChar, req.user.id)
+      .query("SELECT * FROM Items WHERE id = @id AND userId = @uid");
+
+    const item = result.recordset[0];
+    if (!item || item.type !== "file") return res.status(404).json({ error: "Fichier introuvable" });
+
+    // Récupération du stream Azure Blob
+    const blobStream = await getBlobStream(item.blobName);
+
+    res.setHeader("Content-Disposition", `attachment; filename="${item.name}"`);
+    res.setHeader("Content-Type", item.mimetype);
+    blobStream.pipe(res);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Suppression (SQL + Blob)
+router.delete("/items/:id", verifyToken, async (req, res) => {
+  try {
+    const pool = await sql.connect();
+
+    // Récupérer l'item pour savoir si c'est un fichier avec un blob
+    const result = await pool
+      .request()
+      .input("id", sql.NVarChar, req.params.id)
+      .input("uid", sql.NVarChar, req.user.id)
+      .query("SELECT * FROM Items WHERE id = @id AND userId = @uid");
+
+    const item = result.recordset[0];
+    if (!item) return res.status(404).json({ error: "Introuvable" });
+
+    // Suppression SQL
+    await pool.request().input("id", sql.NVarChar, req.params.id).query("DELETE FROM Items WHERE id = @id");
+
+    // Suppression Blob si nécessaire (asynchrone, on n'attend pas forcément)
+    if (item.type === "file" && item.blobName) {
+      deleteBlob(item.blobName).catch(console.error);
+    }
+
+    res.status(204).send();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;
