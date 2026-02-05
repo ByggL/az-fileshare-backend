@@ -14,15 +14,16 @@ router.get("/", verifyToken, async (req, res) => {
   try {
     const pool = await sql.connect();
     // Gestion du NULL pour parentId dans la requête SQL
-    let query = "SELECT * FROM Items WHERE userId = @uid AND ";
-    query += parentId ? "parentId = @pid" : "parentId IS NULL";
+    let query = "SELECT * FROM Items";
+    query += parentId ? "WHERE parentId = @pid" : "";
 
-    const reqSql = pool.request().input("uid", sql.NVarChar, req.user.id);
+    const reqSql = pool.request();
     if (parentId) reqSql.input("pid", sql.NVarChar, parentId);
 
     const result = await reqSql.query(query);
     res.json(result.recordset);
   } catch (err) {
+    console.log(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -45,6 +46,7 @@ router.post("/folders", verifyToken, async (req, res) => {
 
     res.status(201).json({ id, name, type: "folder" });
   } catch (err) {
+    console.log(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -77,6 +79,7 @@ router.post("/files", verifyToken, upload.single("file"), async (req, res) => {
 
     res.status(201).json({ id, name: req.file.originalname, type: "file" });
   } catch (err) {
+    console.log(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -101,6 +104,7 @@ router.get("/files/:id/content", verifyToken, async (req, res) => {
     res.setHeader("Content-Type", item.mimetype);
     blobStream.pipe(res);
   } catch (err) {
+    console.log(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -130,6 +134,7 @@ router.delete("/items/:id", verifyToken, async (req, res) => {
 
     res.status(204).send();
   } catch (err) {
+    console.log(err);
     res.status(500).json({ error: err.message });
   }
 });
