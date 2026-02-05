@@ -10,7 +10,11 @@ const PORT = process.env.PORT || 3000;
 // Connexion BDD
 connectDB();
 
-app.use(cors());
+app.use(
+  cors({
+    exposedHeaders: ["Content-Disposition"], // Allows frontend to read the filename
+  }),
+);
 app.use(express.json());
 
 app.use("/api/auth", authRoutes);

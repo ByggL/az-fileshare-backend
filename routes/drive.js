@@ -15,9 +15,10 @@ router.get("/", verifyToken, async (req, res) => {
     const pool = await sql.connect();
     // Gestion du NULL pour parentId dans la requête SQL
     let query = "SELECT * FROM Items WHERE ";
-    query += req.user ? "userId = @uid" : "";
-    query += req.user && parentId ? " AND " : "";
+    query += req.user ? "userId = @uid AND " : "";
     query += parentId ? "parentId = @pid" : "parentId IS NULL";
+
+    console.log(query);
 
     const reqSql = pool.request();
     if (req.user) reqSql.input("uid", sql.NVarChar, req.user.id);
@@ -101,7 +102,7 @@ router.get("/files/:id/content", verifyToken, async (req, res) => {
     if (!item || item.type !== "file") return res.status(404).json({ error: "Fichier introuvable" });
 
     // Récupération du stream Azure Blob
-    const blobStream = await getBlobStream(item.blobName);
+    const blobStream = await getBlobStream(`${item.id}-${item.name}`);
 
     res.setHeader("Content-Disposition", `attachment; filename="${item.name}"`);
     res.setHeader("Content-Type", item.mimetype);
