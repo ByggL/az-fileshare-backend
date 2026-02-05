@@ -3,6 +3,7 @@ const cors = require("cors");
 const { connectDB } = require("./utils/db"); // Import DB
 const authRoutes = require("./routes/auth");
 const driveRoutes = require("./routes/drive");
+require("dotenv").config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
