@@ -14,10 +14,13 @@ router.get("/", verifyToken, async (req, res) => {
   try {
     const pool = await sql.connect();
     // Gestion du NULL pour parentId dans la requête SQL
-    let query = "SELECT * FROM Items";
-    query += parentId ? "WHERE parentId = @pid" : "";
+    let query = "SELECT * FROM Items WHERE ";
+    query += req.user ? "userId = @uid" : "";
+    query += req.user && parentId ? " AND " : "";
+    query += parentId ? "parentId = @pid" : "parentId IS NULL";
 
     const reqSql = pool.request();
+    if (req.user) reqSql.input("uid", sql.NVarChar, req.user.id);
     if (parentId) reqSql.input("pid", sql.NVarChar, parentId);
 
     const result = await reqSql.query(query);
