@@ -1,129 +1,163 @@
-# AZ Fileshare Backend
+# 🚀 Azure Fullstack Deployment (Node.js + MySQL)
 
-Backend d'une application de partage de fichiers (type Google Drive) conçu pour être déployé sur **Microsoft Azure**. Ce projet expose une API RESTful permettant l'authentification des utilisateurs, la gestion de dossiers hiérarchiques et le stockage de fichiers volumineux.
+Ce repository contient le code source de l'application ainsi que l'infrastructure as code (IaC) nécessaire pour déployer automatiquement l'ensemble sur Microsoft Azure.
 
-## Technologies Utilisées
+L'architecture déployée comprend :
 
-- **Runtime** : Node.js (v24.x)
-- **Framework** : Express.js (v5)
-- **Base de données** : Azure SQL Database (MSSQL) pour les métadonnées et la structure.
-- **Stockage de fichiers** : Azure Blob Storage pour les fichiers binaires.
-- **Authentification** : JWT (JSON Web Tokens).
-- **Upload** : Multer (gestion des flux en mémoire).
+- **Frontend :** App Service (Node.js)
+- **Backend :** App Service (Node.js)
+- **Base de données :** Azure Database for MySQL (Flexible Server)
+- **Orchestration :** Tout est interconnecté via Bicep et GitHub Actions.
 
-## Structure du Projet
+---
+
+## 📋 Prérequis
+
+Avant de commencer, assurez-vous d'avoir :
+
+1. Un compte **Microsoft Azure** actif (avec une souscription).
+2. **Azure CLI** installé sur votre machine locale (pour la configuration initiale).
+3. Un compte **GitHub** (pour forker ce repo).
+
+---
+
+## 🛠️ Installation et Configuration
+
+Suivez ces étapes pour configurer votre environnement de déploiement.
+
+### 1. Forker le projet
+
+Commencez par "Forker" ce repository sur votre propre compte GitHub.
+
+### 2. Créer un "Service Principal" Azure
+
+Pour que GitHub Actions puisse créer des ressources sur votre Azure, il a besoin d'une identité avec les droits de contribution.
+
+Ouvrez votre terminal et connectez-vous à Azure :
+
+```bash
+az login
+
+```
+
+Récupérez votre ID de souscription (Subscription ID) :
+
+```bash
+az account show --query id --output tsv
+
+```
+
+Lancez la commande suivante (remplacez `{SUBSCRIPTION_ID}` par l'ID récupéré juste avant) :
+
+```bash
+az ad sp create-for-rbac --name "myAppDeployer" --role contributor --scopes /subscriptions/{SUBSCRIPTION_ID} --json-auth
+
+```
+
+⚠️ **Important :** Copiez tout le bloc JSON que cette commande va générer. Il ressemble à ceci :
+
+```json
+{
+  "clientId": "...",
+  "clientSecret": "...",
+  "subscriptionId": "...",
+  "tenantId": "...",
+  "activeDirectoryEndpointUrl": "..."
+}
+```
+
+### 3. Configurer les Secrets GitHub
+
+Allez dans votre repository GitHub sur le web :
+
+1. Cliquez sur **Settings** > **Secrets and variables** > **Actions**.
+2. Cliquez sur **New repository secret**.
+
+Ajoutez les secrets suivants :
+
+| Nom du Secret           | Valeur                                                         |
+| ----------------------- | -------------------------------------------------------------- |
+| `AZURE_CREDENTIALS`     | Collez **tout le JSON** généré à l'étape précédente.           |
+| `AZURE_SUBSCRIPTION_ID` | Votre ID de souscription Azure.                                |
+| `DB_PASSWORD`           | Choisissez un mot de passe fort pour la base de données MySQL. |
+
+### 4. Personnaliser les variables de déploiement
+
+Ouvrez le fichier `.github/workflows/deploy-infra.yml` et modifiez la section `env` pour qu'elle corresponde à votre projet :
+
+```yaml
+env:
+  RESOURCE_GROUP: "rg-mon-super-projet" # Nom du groupe de ressources qui sera créé
+  LOCATION: "norwayeast" # Région Azure (ex: westeurope, eastus)
+  PROJECT_NAME: "projet-xyz-123" # DOIT ÊTRE UNIQUE ! (utilisé pour les URL)
+```
+
+_Note : `PROJECT_NAME` doit être unique globalement sur Azure car il définit l'URL (ex: `projet-xyz-123-frontend.azurewebsites.net`)._
+
+---
+
+## 📂 Structure du Projet
+
+Assurez-vous que vos fichiers sont organisés comme suit pour que le script fonctionne :
 
 ```text
-az-fileshare-backend/
-├── .github/workflows/   # Pipeline CI/CD pour Azure Actions
-├── middleware/          # Middlewares (Auth JWT, Config Upload)
-├── routes/              # Définition des endpoints API (Auth, Drive)
-├── utils/               # Logique de connexion (SQL, Blob Storage)
-├── main.bicep           # Définition de l'infrastructure Azure (IaC)
-├── server.js            # Point d'entrée de l'application
-└── package.json         # Dépendances
+/
+├── .github/
+│   └── workflows/
+│       └── deploy-infra.yml  # Le pipeline CI/CD
+├── backend/                  # Code source du backend
+│   ├── package.json
+│   └── ...
+├── frontend/                 # Code source du frontend
+│   ├── package.json
+│   └── ...
+├── main.bicep                # Orchestrateur d'infrastructure
+├── backend.bicep             # Module infrastructure Backend
+└── frontend.bicep            # Module infrastructure Frontend
+
 ```
 
-## Installation et Démarrage Local
+---
 
-### Prérequis
+## 🚀 Déploiement
 
-- Node.js installé.
-- Une instance SQL Server (locale ou Azure).
-- Un compte de stockage Azure (ou l'émulateur Azurite).
+Une fois la configuration terminée :
 
-### 1. Cloner et installer
+1. Faites un commit et poussez vos changements sur la branche `main`.
 
 ```bash
-git clone [https://github.com/ByggL/az-fileshare-backend.git](https://github.com/ByggL/az-fileshare-backend.git)
-cd az-fileshare-backend
-npm install
+git add .
+git commit -m "Setup deployment config"
+git push origin main
+
 ```
 
-### 2. Configuration (.env)
+2. Allez dans l'onglet **Actions** de votre repository GitHub.
+3. Vous verrez le workflow `Deploy Infrastructure & Apps` se lancer.
 
-Créez un fichier `.env` à la racine (ce fichier est ignoré par git) :
+### Ce qui va se passer automatiquement :
 
-```ini
-PORT=3000
-SECRET_KEY=votre_cle_secrete_jwt_super_longue
+1. GitHub va créer le Resource Group.
+2. Il va déployer le serveur MySQL et le plan App Service.
+3. Il va créer les Web Apps (Front et Back).
+4. Il va injecter les identifiants de la BDD dans le Backend.
+5. Il va injecter l'URL du Backend dans le Frontend.
+6. Il va builder et déployer le code Node.js.
 
-# Configuration Base de Données
-DB_SERVER=localhost # ou votre-serveur.database.windows.net
-DB_USER=votre_user
-DB_PASS=votre_password
-DB_NAME=FileshareDB
+---
 
-# Configuration Azure Storage
-AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=...
-CONTAINER_NAME=user-files
+## 🐛 Troubleshooting
+
+- **Erreur de nom de domaine :** Si le déploiement échoue avec une erreur indiquant qu'un nom est déjà pris, changez la valeur de `PROJECT_NAME` dans le fichier YAML.
+- **Erreur de base de données :** Vérifiez que le `DB_PASSWORD` dans les secrets respecte les exigences de complexité d'Azure (Majuscule, minuscule, chiffre, caractère spécial).
+- **Coûts :** Ce déploiement utilise des tiers payants (Basic B1). N'oubliez pas de supprimer le groupe de ressources via le portail Azure si vous n'utilisez plus le projet pour éviter les frais.
+
+---
+
+## 📞 Support
+
+Pour toute question concernant l'architecture, référez-vous aux fichiers `.bicep`.
+
 ```
 
-### 3. Initialisation de la Base de Données
-
-Exécutez ce script SQL pour créer les tables nécessaires (basé sur le schéma utilisé dans `routes/`) :
-
-```sql
-CREATE TABLE Users (
-    id NVARCHAR(50) PRIMARY KEY,
-    username NVARCHAR(100) NOT NULL UNIQUE,
-    password NVARCHAR(100) NOT NULL
-);
-
-CREATE TABLE Items (
-    id NVARCHAR(50) PRIMARY KEY,
-    userId NVARCHAR(50) NOT NULL,
-    type NVARCHAR(20) NOT NULL, -- 'folder' ou 'file'
-    name NVARCHAR(255) NOT NULL,
-    size BIGINT,
-    mimetype NVARCHAR(100),
-    parentId NVARCHAR(50),
-    createdAt DATETIME DEFAULT GETDATE(),
-    blobName NVARCHAR(255),
-    CONSTRAINT FK_Items_Users FOREIGN KEY (userId) REFERENCES Users(id)
-);
 ```
-
-### 4. Lancer le serveur
-
-```bash
-npm start
-# Le serveur démarrera sur http://localhost:3000 (après connexion BDD réussie)
-```
-
-## Déploiement et CI/CD (Azure)
-
-Le déploiement est entièrement automatisé via GitHub Actions.
-
-### Workflow
-
-1. **Trigger** : À chaque `push` sur la branche `main`.
-2. **Job Build** :
-
-- Installation des dépendances (`npm install`).
-- Création de l'artefact de déploiement.
-
-3. **Job Deploy** :
-
-- Authentification via Azure Login (Service Principal).
-- Déploiement sur **Azure App Service** (Linux Plan).
-- L'application est configurée pour utiliser Node 24 LTS.
-
-### Configuration sur Azure Portal
-
-**Important** : Les fichiers `.env` ne sont pas envoyés sur Azure. Vous devez configurer manuellement les variables d'environnement dans le portail Azure :
-
-- Aller dans **App Service** > **Settings** > **Environment variables**.
-- Ajouter : `DB_SERVER`, `DB_USER`, `DB_PASS`, `DB_NAME`, `AZURE_STORAGE_CONNECTION_STRING`, `CONTAINER_NAME`, `SECRET_KEY`.
-
-## Endpoints Principaux
-
-| Méthode  | Endpoint                       | Description                                      |
-| -------- | ------------------------------ | ------------------------------------------------ |
-| `POST`   | `/api/auth/register`           | Création de compte                               |
-| `POST`   | `/api/auth/login`              | Connexion (retourne un Token)                    |
-| `GET`    | `/api/drive`                   | Lister la racine ou un dossier (`?parentId=...`) |
-| `POST`   | `/api/drive/folders`           | Créer un dossier                                 |
-| `POST`   | `/api/drive/files`             | Uploader un fichier                              |
-| `GET`    | `/api/drive/files/:id/content` | Télécharger un fichier                           |
-| `DELETE` | `/api/drive/items/:id`         | Supprimer un fichier ou dossier                  |
