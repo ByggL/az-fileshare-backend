@@ -112,11 +112,3 @@ Faites un push sur le repo Frontend. GitHub Actions va compiler votre site et l'
 ## 📞 Support
 
 L'infrastructure est définie dans les fichiers `.bicep` de ce repository. Pour modifier la taille des serveurs ou la version de Node, c'est ici qu'il faut agir.
-
-```
-
-```
-
-```
-
-```
