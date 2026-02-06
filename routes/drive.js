@@ -14,15 +14,20 @@ router.get("/", verifyToken, async (req, res) => {
   try {
     const pool = await sql.connect();
     // Gestion du NULL pour parentId dans la requête SQL
-    let query = "SELECT * FROM Items WHERE userId = @uid AND ";
+    let query = "SELECT * FROM Items WHERE ";
+    query += req.user ? "userId = @uid AND " : "";
     query += parentId ? "parentId = @pid" : "parentId IS NULL";
 
-    const reqSql = pool.request().input("uid", sql.NVarChar, req.user.id);
+    console.log(query);
+
+    const reqSql = pool.request();
+    if (req.user) reqSql.input("uid", sql.NVarChar, req.user.id);
     if (parentId) reqSql.input("pid", sql.NVarChar, parentId);
 
     const result = await reqSql.query(query);
     res.json(result.recordset);
   } catch (err) {
+    console.log(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -45,6 +50,7 @@ router.post("/folders", verifyToken, async (req, res) => {
 
     res.status(201).json({ id, name, type: "folder" });
   } catch (err) {
+    console.log(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -77,6 +83,7 @@ router.post("/files", verifyToken, upload.single("file"), async (req, res) => {
 
     res.status(201).json({ id, name: req.file.originalname, type: "file" });
   } catch (err) {
+    console.log(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -95,12 +102,13 @@ router.get("/files/:id/content", verifyToken, async (req, res) => {
     if (!item || item.type !== "file") return res.status(404).json({ error: "Fichier introuvable" });
 
     // Récupération du stream Azure Blob
-    const blobStream = await getBlobStream(item.blobName);
+    const blobStream = await getBlobStream(`${item.id}-${item.name}`);
 
     res.setHeader("Content-Disposition", `attachment; filename="${item.name}"`);
     res.setHeader("Content-Type", item.mimetype);
     blobStream.pipe(res);
   } catch (err) {
+    console.log(err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -130,6 +138,7 @@ router.delete("/items/:id", verifyToken, async (req, res) => {
 
     res.status(204).send();
   } catch (err) {
+    console.log(err);
     res.status(500).json({ error: err.message });
   }
 });
