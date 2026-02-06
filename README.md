@@ -35,8 +35,6 @@ az login
 az account show --query id --output tsv
 ```
 
-````
-
 Créez le robot de déploiement (remplacez `{SUBSCRIPTION_ID}`) :
 
 ```bash
@@ -118,4 +116,7 @@ L'infrastructure est définie dans les fichiers `.bicep` de ce repository. Pour 
 ```
 
 ```
-````
+
+```
+
+```
