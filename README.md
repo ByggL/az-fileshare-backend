@@ -67,7 +67,8 @@ Exécutez ce script SQL pour créer les tables nécessaires (basé sur le schém
 CREATE TABLE Users (
     id NVARCHAR(50) PRIMARY KEY,
     username NVARCHAR(100) NOT NULL UNIQUE,
-    password NVARCHAR(100) NOT NULL
+    password NVARCHAR(100),
+    googleId NVARCHAR(255)
 );
 
 CREATE TABLE Items (
