@@ -1,130 +1,114 @@
-# AZ Fileshare Backend
+# 🚀 Azure Fullstack Deployment (Backend + Infrastructure)
 
-Backend d'une application de partage de fichiers (type Google Drive) conçu pour être déployé sur **Microsoft Azure**. Ce projet expose une API RESTful permettant l'authentification des utilisateurs, la gestion de dossiers hiérarchiques et le stockage de fichiers volumineux.
+Ce repository contient le code source de l'API (Backend) ainsi que l'**Infrastructure as Code (IaC)** pour tout le projet (Front + Back + Base de données).
 
-## Technologies Utilisées
+L'architecture est séparée en deux repositories :
 
-- **Runtime** : Node.js (v24.x)
-- **Framework** : Express.js (v5)
-- **Base de données** : Azure SQL Database (MSSQL) pour les métadonnées et la structure.
-- **Stockage de fichiers** : Azure Blob Storage pour les fichiers binaires.
-- **Authentification** : JWT (JSON Web Tokens).
-- **Upload** : Multer (gestion des flux en mémoire).
+1.  **Ce repo (Backend + Infra)** : Déploie les ressources Azure (MySQL, App Services) et le code Backend.
+2.  **Le repo Frontend** : Déploie uniquement le code React/Vue/Angular sur l'infrastructure créée ici.
 
-## Structure du Projet
+---
 
-```text
-az-fileshare-backend/
-├── .github/workflows/   # Pipeline CI/CD pour Azure Actions
-├── middleware/          # Middlewares (Auth JWT, Config Upload)
-├── routes/              # Définition des endpoints API (Auth, Drive)
-├── utils/               # Logique de connexion (SQL, Blob Storage)
-├── main.bicep           # Définition de l'infrastructure Azure (IaC)
-├── server.js            # Point d'entrée de l'application
-└── package.json         # Dépendances
-```
+## 📋 Prérequis
 
-## Installation et Démarrage Local
+Avant de commencer, assurez-vous d'avoir :
 
-### Prérequis
+1.  Un compte **Microsoft Azure** actif.
+2.  **Azure CLI** installé en local.
+3.  Ce repository **Backend** forké.
+4.  Le repository **Frontend** forké (sur un autre repo).
 
-- Node.js installé.
-- Une instance SQL Server (locale ou Azure).
-- Un compte de stockage Azure (ou l'émulateur Azurite).
+---
 
-### 1. Cloner et installer
+## 🛠️ Partie 1 : Déploiement de l'Infrastructure et du Backend
+
+C'est ce repository qui pilote la création des serveurs.
+
+### 1. Créer un "Service Principal" Azure
+
+Cette étape permet à GitHub Actions de créer des ressources sur votre compte Azure.
+
+Connectez-vous et récupérez votre ID de souscription :
 
 ```bash
-git clone [https://github.com/ByggL/az-fileshare-backend.git](https://github.com/ByggL/az-fileshare-backend.git)
-cd az-fileshare-backend
-npm install
+az login
+az account show --query id --output tsv
 ```
 
-### 2. Configuration (.env)
-
-Créez un fichier `.env` à la racine (ce fichier est ignoré par git) :
-
-```ini
-PORT=3000
-SECRET_KEY=votre_cle_secrete_jwt_super_longue
-
-# Configuration Base de Données
-DB_SERVER=localhost # ou votre-serveur.database.windows.net
-DB_USER=votre_user
-DB_PASS=votre_password
-DB_NAME=FileshareDB
-
-# Configuration Azure Storage
-AZURE_STORAGE_CONNECTION_STRING=DefaultEndpointsProtocol=https;AccountName=...
-CONTAINER_NAME=user-files
-```
-
-### 3. Initialisation de la Base de Données
-
-Exécutez ce script SQL pour créer les tables nécessaires (basé sur le schéma utilisé dans `routes/`) :
-
-```sql
-CREATE TABLE Users (
-    id NVARCHAR(50) PRIMARY KEY,
-    username NVARCHAR(100) NOT NULL UNIQUE,
-    password NVARCHAR(100),
-    googleId NVARCHAR(255)
-);
-
-CREATE TABLE Items (
-    id NVARCHAR(50) PRIMARY KEY,
-    userId NVARCHAR(50) NOT NULL,
-    type NVARCHAR(20) NOT NULL, -- 'folder' ou 'file'
-    name NVARCHAR(255) NOT NULL,
-    size BIGINT,
-    mimetype NVARCHAR(100),
-    parentId NVARCHAR(50),
-    createdAt DATETIME DEFAULT GETDATE(),
-    blobName NVARCHAR(255),
-    CONSTRAINT FK_Items_Users FOREIGN KEY (userId) REFERENCES Users(id)
-);
-```
-
-### 4. Lancer le serveur
+Créez le robot de déploiement (remplacez `{SUBSCRIPTION_ID}`) :
 
 ```bash
-npm start
-# Le serveur démarrera sur http://localhost:3000 (après connexion BDD réussie)
+az ad sp create-for-rbac --name "myFullstackDeployer" --role contributor --scopes /subscriptions/{SUBSCRIPTION_ID} --json-auth
+
 ```
 
-## Déploiement et CI/CD (Azure)
+⚠️ **Copiez le JSON généré**, vous en aurez besoin pour les DEUX repositories.
 
-Le déploiement est entièrement automatisé via GitHub Actions.
+### 2. Configurer les Secrets du Backend
 
-### Workflow
+Dans ce repository GitHub (Backend), allez dans **Settings > Secrets and variables > Actions** et ajoutez :
 
-1. **Trigger** : À chaque `push` sur la branche `main`.
-2. **Job Build** :
+| Nom du Secret           | Valeur                                              |
+| ----------------------- | --------------------------------------------------- |
+| `AZURE_CREDENTIALS`     | Le JSON complet généré à l'étape précédente.        |
+| `AZURE_SUBSCRIPTION_ID` | Votre ID de souscription Azure.                     |
+| `DB_PASSWORD`           | Un mot de passe fort pour la base de données MySQL. |
 
-- Installation des dépendances (`npm install`).
-- Création de l'artefact de déploiement.
+### 3. Lancer le déploiement
 
-3. **Job Deploy** :
+1. Allez dans le fichier `.github/workflows/deploy-backend.yml` (ou équivalent).
+2. Modifiez les variables d'environnement au début du fichier si nécessaire (notamment `PROJECT_NAME` qui doit être unique).
+3. Poussez sur la branche `main`.
 
-- Authentification via Azure Login (Service Principal).
-- Déploiement sur **Azure App Service** (Linux Plan).
-- L'application est configurée pour utiliser Node 24 LTS.
+**Ce qui va se passer :**
 
-### Configuration sur Azure Portal
+- Azure crée le Groupe de Ressources.
+- Azure crée MySQL et les 2 App Services (un pour le Back, un vide pour le Front).
+- Le code Backend est déployé et connecté à la BDD.
 
-**Important** : Les fichiers `.env` ne sont pas envoyés sur Azure. Vous devez configurer manuellement les variables d'environnement dans le portail Azure :
+---
 
-- Aller dans **App Service** > **Settings** > **Environment variables**.
-- Ajouter : `DB_SERVER`, `DB_USER`, `DB_PASS`, `DB_NAME`, `AZURE_STORAGE_CONNECTION_STRING`, `CONTAINER_NAME`, `SECRET_KEY`.
+## 🔗 Partie 2 : Connexion avec le Frontend
 
-## Endpoints Principaux
+Une fois le déploiement de ce repo terminé, l'infrastructure est prête à recevoir le Frontend.
 
-| Méthode  | Endpoint                       | Description                                      |
-| -------- | ------------------------------ | ------------------------------------------------ |
-| `POST`   | `/api/auth/register`           | Création de compte                               |
-| `POST`   | `/api/auth/login`              | Connexion (retourne un Token)                    |
-| `GET`    | `/api/drive`                   | Lister la racine ou un dossier (`?parentId=...`) |
-| `POST`   | `/api/drive/folders`           | Créer un dossier                                 |
-| `POST`   | `/api/drive/files`             | Uploader un fichier                              |
-| `GET`    | `/api/drive/files/:id/content` | Télécharger un fichier                           |
-| `DELETE` | `/api/drive/items/:id`         | Supprimer un fichier ou dossier                  |
+### 1. Récupérer le nom de l'App Service Frontend
+
+Allez sur le portail Azure, dans le groupe de ressources créé. Trouvez l'App Service destiné au Frontend (ex: `monprojet-frontend`). Copiez son nom.
+
+### 2. Configurer le Repo Frontend
+
+Allez sur votre **autre repository** (celui du Frontend) :
+
+1. Allez dans **Settings > Secrets and variables > Actions**.
+2. Ajoutez le **MÊME** secret `AZURE_CREDENTIALS` que vous avez utilisé pour le backend.
+
+### 3. Configurer le Workflow Frontend
+
+Dans le repo Frontend, éditez le fichier `.github/workflows/deploy-frontend.yml` :
+
+```yaml
+env:
+  AZURE_WEBAPP_NAME: "nom-du-front-recupere-sur-azure" # 👈 Mettre le nom ici
+```
+
+### 4. Déployer
+
+Faites un push sur le repo Frontend. GitHub Actions va compiler votre site et l'envoyer sur l'App Service qui a été créé par le repo Backend.
+
+---
+
+## 🐛 Troubleshooting
+
+- **Le Frontend ne trouve pas l'API :**
+- Le déploiement Infra (ce repo) injecte automatiquement l'URL de l'API dans les fichiers de configuration du Frontend via la commande de démarrage (Startup Command).
+- Assurez-vous que le déploiement Backend a bien réussi avant de lancer celui du Frontend.
+
+- **Erreur de droits (403/401) :**
+- Vérifiez que le secret `AZURE_CREDENTIALS` est identique et valide sur les deux repos.
+
+---
+
+## 📞 Support
+
+L'infrastructure est définie dans les fichiers `.bicep` de ce repository. Pour modifier la taille des serveurs ou la version de Node, c'est ici qu'il faut agir.
